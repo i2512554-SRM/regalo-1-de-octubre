@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="description" content="Un regalo para Myla">
+<title>Te amo Myla</title>
+<style>
+  :root { box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); color-scheme: dark; }
+  html, body { height: 100%; margin: 0; background: #000; overflow: hidden; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  #btn {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    padding: 16px 38px; font-size: 18px; letter-spacing: .08em; color: #fff;
+    background: rgba(255, 70, 130, .15); border: 1.5px solid #ff4d88; border-radius: 999px;
+    cursor: pointer; transition: opacity .6s, transform .3s, box-shadow .3s;
+    box-shadow: 0 0 22px rgba(255, 77, 136, .55);
+    -webkit-tap-highlight-color: transparent;
+  }
+  #btn:hover { transform: translate(-50%, -50%) scale(1.07); box-shadow: 0 0 36px rgba(255, 77, 136, .9); }
+  #btn:active { transform: translate(-50%, -50%) scale(.97); }
+  #btn.hide { opacity: 0; pointer-events: none; }
+  #btn:focus-visible { outline: 2px solid #ff8db3; outline-offset: 4px; }
+
+  #count { position: fixed; top: calc(14px + env(safe-area-inset-top, 0px)); left: 0; right: 0; text-align: center; color: #ff8db3; font-size: 13px; letter-spacing: .2em; opacity: .7; pointer-events: none; }
+
+  #bar {
+    position: fixed; left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    display: flex; align-items: center; gap: 10px; justify-content: space-between;
+    font-size: 12px; letter-spacing: .04em; pointer-events: none;
+  }
+  #bar > * { pointer-events: auto; }
+  #bar label, #bar button.g {
+    color: #8a8a8a; cursor: pointer; max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 999px;
+    transition: color .3s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #bar button.g { background: none; border: 1px solid #3a3a3a; font: inherit; font-size: 12px; letter-spacing: .04em; }
+  #bar button.g:hover { color: #ff8db3; border-color: #ff4d88; }
+  #bar .saved { color: #ff8db3; }
+  #bar label:hover, #bar label:active { color: #ff8db3; }
+  #bar .ic { color: #ff4d88; font-size: 14px; }
+  #bar #up { margin-left: auto; }
+  #bar #pclr { order: 9; }
+  #up.saved .ic, #up.saved span:last-child { color: #ff8db3; }
+
+  #play {
+    width: 36px; height: 36px; flex: 0 0 36px; border-radius: 50%; cursor: pointer;
+    background: rgba(255, 70, 130, .15); border: 1.5px solid #ff4d88; color: #fff;
+    display: inline-flex; align-items: center; justify-content: center; padding: 0;
+    box-shadow: 0 0 14px rgba(255, 77, 136, .5); -webkit-tap-highlight-color: transparent;
+  }
+  #play::before { content: ''; width: 0; height: 0; margin-left: 3px; border-left: 10px solid #fff; border-top: 6.5px solid transparent; border-bottom: 6.5px solid transparent; }
+  #play.on::before { margin-left: 0; width: 11px; height: 13px; border: 0; background: linear-gradient(90deg, #fff 0 3.5px, transparent 3.5px 7.5px, #fff 7.5px 11px); }
+  #play.blocked { animation: pulse 1.1s infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 14px rgba(255,77,136,.5) } 50% { box-shadow: 0 0 26px rgba(255,77,136,1) } }
+
+  #photo {
+    position: fixed; left: 50%; top: 46px; transform: translateX(-50%) scale(.96);
+    border-radius: 14px; opacity: 0; transition: opacity 1.2s, transform 1.2s; pointer-events: none;
+    box-shadow: 0 0 40px rgba(255, 77, 136, .45);
+  }
+  #photo.show { opacity: 1; transform: translateX(-50%) scale(1); }
+
+  @media (prefers-reduced-motion: reduce) {
+    #photo, #btn, #play { transition: none; }
+    #play.blocked { animation: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<img id="photo" alt="">
+<div id="count" role="status" aria-live="polite"></div>
+<button id="btn">Toca aquí</button>
+
+<div id="bar">
+  <label id="ml" for="mfile"><span class="ic">♪</span><span id="mn">+ música</span></label>
+  <button id="play" hidden aria-label="Poner o pausar la música"></button>
+  <button id="mclr" class="g" hidden title="Quitar la música guardada">quitar</button>
+  <label id="up" for="file"><span class="ic">+</span><span>4 fotos</span></label>
+  <button id="pclr" class="g" hidden title="Quitar las fotos guardadas">quitar</button>
+</div>
+
+<input id="file" type="file" accept="image/*" multiple>
+<input id="mfile" type="file" accept="audio/*">
+<audio id="au" loop preload="metadata" playsinline></audio>
+
+<script>
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const btn = document.getElementById('btn'), countEl = document.getElementById('count');
+const photoEl = document.getElementById('photo');
+const au = document.getElementById('au');
+const playBtn = document.getElementById('play'), musicName = document.getElementById('mn');
+const clrBtn = document.getElementById('mclr');
+const pclrBtn = document.getElementById('pclr');
+
+let W, H, dpr;
+const P = [];
+let mode = 'float';       // float | form
+let stage = 0;            // 0 = texto, 1..4 = fotos
+let busy = false;
+let scene = null;         // { stage } de la escena visible, para poder recalcularla al cambiar de tamaño
+let dirty = true;
+
+const TOPBAR = 46, BOTBAR = 44;   // espacio reservado para el contador y la barra inferior
+const RED = { r: 235, g: 25, b: 45 };
+const TOUCH = matchMedia('(hover: none)').matches;
+const PERF_MAX = TOUCH ? 9000 : 16000;   // techo de partículas según el dispositivo
+const FLOAT_MAX = TOUCH ? 4200 : 7000;
+const OVERSAMPLE = 3;         // partículas por punto de la glifo (lo denso que se ve bien)
+const HOLD_TEXT = 6500, HOLD_PHOTO = 5500, SCATTER = 1600;
+const VOL = 0.9;
+
+const RM = matchMedia('(prefers-reduced-motion: reduce)');
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+const photos = [null, null, null, null];   // fotos subidas: {src, w, h, url}
+const PHRASES = [          // <- cambia aquí las frases para tu novia
+  'Eres mi lugar\nfavorito ♥',
+  'Contigo todo\nes mejor',
+  'Mi corazón\nes tuyo',
+  'Gracias por\nexistir, Myla'
+];
+const MAIN_TEXT = 'Te amo Myla';   // <- texto de la portada
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  dirty = true;
+}
+
+function insets() {
+  const cs = getComputedStyle(document.documentElement);
+  return { top: parseFloat(cs.paddingTop) || 0, bottom: parseFloat(cs.paddingBottom) || 0 };
+}
+function usable() {
+  const i = insets();
+  const top = TOPBAR + i.top, bot = H - (BOTBAR + i.bottom);
+  return { top, bot, h: Math.max(120, bot - top) };
+}
+
+function newParticle() {
+  return {
+    x: Math.random() * W, y: Math.random() * H,
+    vx: (Math.random() - .5) * .6, vy: (Math.random() - .5) * .6,
+    tx: 0, ty: 0, r: RED.r, g: RED.g, b: RED.b, tr: RED.r, tg: RED.g, tb: RED.b,
+    s: Math.random() * 1.3 + .7, k: .035 + Math.random() * .05
+  };
+}
+function setCount(n) {
+  n = Math.max(1, n | 0);
+  while (P.length > n) P.pop();
+  while (P.length < n) P.push(newParticle());
+}
+function floatCount() { return clamp(Math.round(W * H / 55), 2500, FLOAT_MAX); }   // ~la densidad que se ve antes
+
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+function applyTargets(c) {
+  if (!c || !c.length) { setCount(floatCount()); return; }   // sin escena valida no se rompe nada
+  setCount(clamp(Math.round(c.length * OVERSAMPLE), 2600, PERF_MAX));
+  shuffle(c);
+  for (let i = 0; i < P.length; i++) {
+    const t = c[i % c.length], p = P[i];
+    p.tx = clamp(t.x, 0, W); p.ty = clamp(t.y, 0, H);   // nunca un destino fuera de pantalla
+    p.tr = t.r; p.tg = t.g; p.tb = t.b;
+  }
+  dirty = true;
+}
+
+function textTargets(str, cy, areaH) {
+  const off = document.createElement('canvas'); off.width = W; off.height = H;
+  const o = off.getContext('2d');
+  const lines = str.split('\n'), lh = 1.25;
+  let size = Math.max(8, Math.min(areaH / (lines.length * lh), 200, H * .3));
+  const font = sz => `800 ${sz}px system-ui, sans-serif`;
+  o.font = font(size);
+  const w = Math.max(...lines.map(l => o.measureText(l).width));
+  if (w > W * .88) { size *= (W * .88) / w; o.font = font(size); }
+  o.textAlign = 'center'; o.textBaseline = 'middle'; o.fillStyle = '#fff';
+  lines.forEach((l, i) => o.fillText(l, W / 2, cy + (i - (lines.length - 1) / 2) * size * lh));
+  return sampleMask(o.getImageData(0, 0, W, H));
+}
+
+function sampleMask(img) {                 // pixeles encendidos -> puntos en rojo
+  const d = img.data, w = img.width, h = img.height, out = [];
+  for (let y = 0; y < h; y += 2)
+    for (let x = 0; x < w; x += 2) {
+      if (d[(y * w + x) * 4 + 3] > 128)
+        out.push({ x, y, r: 235, g: 20 + Math.random() * 45, b: 35 + Math.random() * 30 });
+    }
+  return out;
+}
+
+function placeholder(n) { // imagen de ejemplo si no subieron foto
+  const s = 400, c = document.createElement('canvas'); c.width = c.height = s;
+  const o = c.getContext('2d');
+  const g = o.createLinearGradient(0, 0, s, s);
+  const pal = [['#ff4d88', '#ffb347'], ['#6a5cff', '#ff4d88'], ['#00c6a7', '#6a5cff'], ['#ffb347', '#ff4d88']][n];
+  g.addColorStop(0, pal[0]); g.addColorStop(1, pal[1]);
+  o.fillStyle = g; o.fillRect(0, 0, s, s);
+  o.fillStyle = '#fff'; o.font = '220px serif'; o.textAlign = 'center'; o.textBaseline = 'middle';
+  o.fillText('♥', s / 2, s / 2 + 10);
+  o.font = '700 36px system-ui'; o.fillText('Foto ' + (n + 1), s / 2, s - 40);
+  return c;
+}
+
+function photoFor(n) {
+  const p = photos[n];
+  if (p) return p;
+  const c = placeholder(n);
+  return { src: c.toDataURL(), w: c.width, h: c.height };
+}
+
+// foto + frase se centran como un bloque, para que no queden huecos raro
+function layout(st) {
+  const u = usable();
+  const phraseH = clamp(u.h * .26, 52, 190);
+  const gap = Math.min(34, u.h * .06);
+  if (st === 0)
+    return { photo: null, cy: u.top + u.h / 2, areaH: phraseH };
+  const f = photoFor(st - 1);
+  const maxH = Math.max(70, u.h - phraseH - gap);
+  const sc = Math.min(W * .86 / f.w, maxH / f.h);
+  const w = Math.round(f.w * sc), h = Math.round(f.h * sc);
+  const blockH = h + gap + phraseH;
+  const top = Math.round(u.top + (u.h - blockH) / 2);
+  const phraseTop = Math.min(top + h + gap, u.bot - phraseH);
+  return { photo: { src: f.src, w, h, top }, cy: phraseTop + phraseH / 2, areaH: phraseH };
+}
+
+function placePhoto(p) {
+  if (!p) { photoEl.classList.remove('show'); return; }
+  photoEl.style.width = p.w + 'px'; photoEl.style.height = p.h + 'px';
+  photoEl.style.top = p.top + 'px';
+  if (photoEl.getAttribute('src') === p.src) { photoEl.classList.add('show'); return; }
+  photoEl.classList.remove('show');
+  photoEl.onload = () => photoEl.classList.add('show');
+  photoEl.onerror = () => photoEl.classList.remove('show');
+  photoEl.src = p.src;
+  if (photoEl.complete && photoEl.naturalWidth) photoEl.classList.add('show');
+}
+
+function buildScene() {
+  const st = scene.stage;
+  const L = layout(st);
+  placePhoto(L.photo);
+  applyTargets(textTargets(st === 0 ? MAIN_TEXT : PHRASES[st - 1], L.cy, L.areaH));
+}
+
+// --- resize: reescala posiciones y recalcula la escena, para que al rotar no se pierda el texto
+let rzTimer = 0, built = { w: 0, h: 0 };
+function onResize() {
+  clearTimeout(rzTimer);
+  rzTimer = setTimeout(() => {
+    const pw = W, ph = H;
+    resize();
+    const sx = W / (pw || 1), sy = H / (ph || 1);
+    for (const p of P) { p.x *= sx; p.y *= sy; p.tx *= sx; p.ty *= sy; }
+    const big = Math.abs(W - built.w) > 24 || Math.abs(H - built.h) > 24;
+    if (mode === 'form' && scene && big) buildScene(); else dirty = true;
+    built = { w: W, h: H };
+  }, 200);
+}
+addEventListener('resize', onResize);
+addEventListener('orientationchange', () => { clearTimeout(rzTimer); rzTimer = setTimeout(onResize, 30); });
+
+function nextStage(shown) { return shown >= 4 ? 0 : shown + 1; }
+function btnLabel(shown) { return shown >= 4 ? 'Volver a empezar' : 'Siguiente'; }
+
+function run() {
+  if (busy) return;
+  const shown = stage;
+  scene = { stage: shown };
+  built = { w: W, h: H };
+
+  if (RM.matches) {                            // sin animacion: se dibuja el resultado y ya
+    busy = true;
+    btn.classList.add('hide');
+    buildScene();
+    for (const p of P) { p.x = p.tx; p.y = p.ty; p.r = p.tr; p.g = p.tg; p.b = p.tb; }
+    mode = 'form';
+    countEl.textContent = shown === 0 ? '' : `${shown} / 4`;
+    stage = nextStage(shown);
+    btn.textContent = btnLabel(shown);
+    btn.classList.remove('hide');
+    busy = false;
+    return;
+  }
+
+  busy = true;
+  btn.classList.add('hide');
+  buildScene();
+  mode = 'form';
+  countEl.textContent = shown === 0 ? '' : `${shown} / 4`;
+  startMusic();                               // aqui si hay gesto, la musica puede arrancar sola
+
+  setTimeout(() => {                           // tras un tiempo se dispersan
+    mode = 'float';
+    photoEl.classList.remove('show');
+    setCount(floatCount());
+    const a0 = Math.random() * 6.283;
+    for (const p of P) {
+      const a = a0 + (Math.random() - .5) * .6, v = 2 + Math.random() * 4;
+      p.vx = Math.cos(a) * v; p.vy = Math.sin(a) * v;
+    }
+    setTimeout(() => {
+      stage = nextStage(shown);
+      btn.textContent = btnLabel(shown);
+      countEl.textContent = '';
+      btn.classList.remove('hide');
+      busy = false;
+    }, SCATTER);
+  }, shown === 0 ? HOLD_TEXT : HOLD_PHOTO);
+}
+btn.addEventListener('click', run);
+
+// --- guardado: IndexedDB, para que musica y fotos sigan puestas al reabrir el archivo
+const DB_NAME = 'regalo-myla', K_MUSIC = 'musica', K_PHOTOS = 'fotos';
+let idb = null;
+
+function idbOpen() {
+  return new Promise((res, rej) => {
+    if (!self.indexedDB) return rej(new Error('sin IndexedDB'));
+    const r = indexedDB.open(DB_NAME, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('s');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error || new Error('no se pudo abrir'));
+    r.onblocked = () => rej(new Error('bloqueado'));
+  });
+}
+function idbPut(key, val) {
+  return new Promise((res, rej) => {
+    const t = idb.transaction('s', 'readwrite');
+    t.objectStore('s').put(val, key);
+    t.oncomplete = () => res(true);
+    t.onerror = () => rej(t.error);
+    t.onabort = () => rej(t.error || new Error('cancelado'));
+  });
+}
+function idbGet(key) {
+  return new Promise((res, rej) => {
+    const t = idb.transaction('s', 'readonly');
+    const g = t.objectStore('s').get(key);
+    g.onsuccess = () => res(g.result);
+    g.onerror = () => rej(g.error);
+  });
+}
+function idbDel(key) {
+  return new Promise(res => {
+    const t = idb.transaction('s', 'readwrite');
+    t.objectStore('s').delete(key);
+    t.oncomplete = () => res(true);
+    t.onerror = () => res(false);
+  });
+}
+
+// --- musica
+let musicURL = null, musicWanted = false, fade = 0, musicStored = false;
+
+function setPlayUI(on, blocked) {
+  playBtn.classList.toggle('on', !!on);
+  playBtn.classList.toggle('blocked', !!blocked);
+  playBtn.setAttribute('aria-label', on ? 'Pausar la música' : 'Poner la música');
+}
+function startMusic() {
+  if (!musicURL || !musicWanted || !au.paused) return;
+  au.volume = 0; fade = 0;
+  const p = au.play();
+  if (p && p.catch) p.then(() => setPlayUI(true, false)).catch(() => { setPlayUI(false, true); });
+}
+function useTrack(src, name, stored, play) {
+  if (musicURL) URL.revokeObjectURL(musicURL);
+  musicURL = src;
+  au.src = src;
+  try { au.volume = 0; } catch {}     // siempre entra en silencio y luego entra el fade
+  musicWanted = true;                      // queda con intencion de sonar
+  musicStored = !!stored;
+  playBtn.hidden = false;
+  clrBtn.hidden = !musicStored;
+  musicName.textContent = (name || 'música').replace(/\.[^.]+$/, '').slice(0, 26) || 'música';
+  if (play !== false) startMusic();
+}
+function dropTrack() {
+  if (musicURL) { URL.revokeObjectURL(musicURL); musicURL = null; }
+  au.removeAttribute('src'); au.load();
+  musicWanted = false; musicStored = false;
+  playBtn.hidden = true; clrBtn.hidden = true;
+  playBtn.classList.remove('on', 'blocked');
+  musicName.textContent = '+ música';
+  musicName.parentElement.classList.remove('saved');
+}
+
+document.getElementById('mfile').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  useTrack(URL.createObjectURL(f), f.name, false);
+  musicName.parentElement.classList.add('saved');
+  e.target.value = '';
+  if (idb) idbPut(K_MUSIC, { name: f.name, blob: f }).then(() => { musicStored = true; clrBtn.hidden = false; })
+    .catch(() => { musicStored = false; clrBtn.hidden = true; });
+});
+playBtn.addEventListener('click', () => {
+  if (!musicURL) return;
+  if (au.paused) { musicWanted = true; startMusic(); }
+  else { musicWanted = false; au.pause(); setPlayUI(false, false); }
+});
+clrBtn.addEventListener('click', () => { dropTrack(); if (idb) idbDel(K_MUSIC); });
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && musicWanted && musicURL && au.paused) au.play().catch(() => setPlayUI(false, true));
+});
+addEventListener('pagehide', e => {
+  if (e.persisted) return;
+  for (const p of photos) revoke(p);
+  if (musicURL) { URL.revokeObjectURL(musicURL); musicURL = null; }
+  if (idb) { try { idb.close(); } catch {} idb = null; }
+});
+
+// --- fotos: tambien se guardan, y se recuperan al reabrir
+function setPhotoStatus(n) {
+  const lab = up.querySelector('span:last-child');
+  lab.textContent = n ? n + (n > 1 ? ' fotos' : ' foto') : '4 fotos';
+  up.classList.toggle('saved', !!n);
+  pclrBtn.hidden = !n;
+}
+function revoke(p) { if (p && p.url) { URL.revokeObjectURL(p.url); p.url = null; } }
+function loadPhoto(file, i, name) {
+  return new Promise(res => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { photos[i] = { src: url, w: img.naturalWidth, h: img.naturalHeight, url, name: name || file.name, file }; res(photos[i]); };
+    img.onerror = () => { URL.revokeObjectURL(url); res(null); };
+    img.src = url;
+  });
+}
+document.getElementById('file').addEventListener('change', async e => {
+  const files = [...e.target.files].slice(0, photos.length);
+  e.target.value = '';
+  if (!files.length) return;
+  for (const p of photos) revoke(p);    // fuera las anteriores, tambien las que no se reemplazan
+  photos.fill(null);
+  const loaded = (await Promise.all(files.map((f, i) => loadPhoto(f, i)))).filter(Boolean);
+  if (!loaded.length) return;
+  setPhotoStatus(loaded.length);
+  if (idb) idbPut(K_PHOTOS, loaded.map(p => ({ name: p.name, blob: p.file }))).catch(() => {});   // si no cabe, solo en esta sesion
+});
+pclrBtn.addEventListener('click', () => {
+  for (const p of photos) revoke(p);
+  photos.fill(null);
+  setPhotoStatus(0);
+  if (scene) { scene.stage = stage; buildScene(); }
+  if (idb) idbDel(K_PHOTOS);
+});
+
+// al abrir el archivo, recupera la ultima musica y las ultimas fotos puestas
+idbOpen().then(async db => {
+  idb = db;
+  try {
+    const rec = await idbGet(K_MUSIC);
+    const blob = rec && rec.blob ? rec.blob : rec;      // tolera un File guardado plano
+    if (blob && blob.size) {
+      useTrack(URL.createObjectURL(blob), (rec && rec.name) || blob.name || 'música', true, false);
+      musicName.parentElement.classList.add('saved');
+      setPlayUI(false, false);           // queda cargada y lista; suena al primer toque
+    }
+  } catch {}
+  try {
+    const list = await idbGet(K_PHOTOS);
+    if (!Array.isArray(list)) return;
+    const recs = list.filter(r => r && r.blob && r.blob.size).slice(0, photos.length);
+    if (!recs.length) return;
+    const loaded = (await Promise.all(recs.map((r, i) => loadPhoto(r.blob, i, r.name)))).filter(Boolean);
+    if (loaded.length) setPhotoStatus(loaded.length);
+  } catch {}
+}).catch(() => { /* sin guardado: se usa solo en esta sesion */ });
+
+// --- dibujo: un solo path por color en vez de un fillRect por particula
+const buckets = new Map();
+const c8 = v => (v << 3) | (v >> 2);        // 5 bits -> 0..255 sin perder los altos
+function paint() {
+  ctx.fillStyle = 'rgba(0,0,0,.34)';
+  ctx.fillRect(0, 0, W, H);
+  buckets.clear();
+  for (let i = 0; i < P.length; i++) {
+    const p = P[i], q = (p.r >> 3 << 10) | (p.g >> 3 << 5) | (p.b >> 3);   // 5 bits por canal
+    let a = buckets.get(q);
+    if (!a) buckets.set(q, a = []);
+    a.push(p.x, p.y, p.s);
+  }
+  for (const [q, a] of buckets) {
+    ctx.beginPath();
+    for (let i = 0; i < a.length; i += 3) ctx.rect(a[i], a[i + 1], a[i + 2], a[i + 2]);
+    ctx.fillStyle = `rgb(${c8(q >> 10 & 31)},${c8(q >> 5 & 31)},${c8(q & 31)})`;
+    ctx.fill();
+  }
+}
+
+const lerp = (rate, dt) => 1 - Math.pow(1 - rate, dt);   // independiente de los fps
+function update(dt) {
+  for (const p of P) {
+    if (mode === 'form') {
+      const k = lerp(p.k, dt), c = lerp(.06, dt), j = .25 * dt;
+      p.x += (p.tx - p.x) * k + (Math.random() - .5) * j;
+      p.y += (p.ty - p.y) * k + (Math.random() - .5) * j;
+      p.r += (p.tr - p.r) * c; p.g += (p.tg - p.g) * c; p.b += (p.tb - p.b) * c;
+    } else {
+      const damp = Math.pow(.985, dt);
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.vx *= damp; p.vy *= damp;
+      if (Math.abs(p.vx) < .25) p.vx += (Math.random() - .5) * .08 * dt;
+      if (Math.abs(p.vy) < .25) p.vy += (Math.random() - .5) * .08 * dt;
+      if (p.x < 0) p.x = W; else if (p.x > W) p.x = 0;
+      if (p.y < 0) p.y = H; else if (p.y > H) p.y = 0;
+      const c = lerp(.03, dt);
+      p.r += (RED.r - p.r) * c; p.g += (RED.g - p.g) * c; p.b += (RED.b - p.b) * c;
+    }
+  }
+}
+
+let last = 0;
+function frame(now) {
+  const dt = last ? clamp((now - last) / 16.667, 0, 4) : 1;
+  last = now;
+  if (!RM.matches) {
+    update(dt);
+    if (au.paused === false && au.volume < VOL) { fade = Math.min(1, fade + dt / 90); au.volume = VOL * fade; }
+    dirty = true;
+  }
+  if (dirty) { paint(); dirty = false; }
+  requestAnimationFrame(frame);
+}
+
+resize();
+setCount(floatCount());
+built = { w: W, h: H };
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

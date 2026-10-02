@@ -369,6 +369,8 @@ function run() {
   scene = { stage: shown };
   built = { w: W, h: H };
   if (shown >= 4) reachedEnd = true;
+  // "Volver a empezar" es el boton que aparece con stage en 0: ahi si reinicia la musica
+  if (shown === 0 && reachedEnd) rewindMusic();
 
   if (RM.matches) {                            // sin animacion: se dibuja el resultado y ya
     busy = true;
@@ -421,8 +423,7 @@ function openLetter() {
   letter.hidden = false;
   requestAnimationFrame(() => letter.classList.add('open'));
   lclose.focus();
-  musicWanted = false; if (musicURL) au.pause();
-  setPlayUI(false, false);
+  startMusic();                               // la carta no corta la musica; si estaba en pausa, sigue
 }
 function closeLetter() {
   letter.classList.remove('open');
@@ -490,6 +491,12 @@ function startMusic() {
   au.volume = 0; fade = 0;
   const p = au.play();
   if (p && p.catch) p.then(() => setPlayUI(true, false)).catch(() => { setPlayUI(false, true); });
+}
+function rewindMusic() {                       // vuelve a empezar la pista desde el segundo 0
+  if (!musicURL) return;
+  au.pause();
+  try { au.currentTime = 0; } catch {}
+  setPlayUI(false, false);
 }
 function useTrack(src, name, stored, play) {
   if (musicURL) URL.revokeObjectURL(musicURL);
@@ -643,10 +650,12 @@ let last = 0;
 function frame(now) {
   const dt = last ? clamp((now - last) / 16.667, 0, 4) : 1;
   last = now;
+  if (!RM.matches && au.paused === false && au.volume < VOL) {   // el volumen sube siempre, carta abierta o no
+    fade = Math.min(1, fade + dt / 90); au.volume = VOL * fade;
+  }
   if (!letter.hidden) { requestAnimationFrame(frame); return; }   // con la carta abierta no hace falta animar
   if (!RM.matches) {
     update(dt);
-    if (au.paused === false && au.volume < VOL) { fade = Math.min(1, fade + dt / 90); au.volume = VOL * fade; }
     dirty = true;
   }
   if (dirty) { paint(); dirty = false; }
